@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Monitoring System</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS untuk Peta -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        /* Loading overlay */
+        #loader { display: none; }
+        .is-loading #loader { display: flex; }
+        #map { height: 400px; z-index: 1; border-radius: 0.5rem; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans h-screen flex flex-col">
+
+    <!-- Konfigurasi Utama -->
+    <script>
+        // MASUKKAN URL WEB APP GOOGLE APPS SCRIPT ANDA DI SINI
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxRNNy9DAEl2VAXW-Q5xPbVoKivLdVDZzoN1EaeRryCu4_Q2Uc1q2GHoEVwwCun95Tccw/exec'; // GANTI DENGAN URL ASLI
+        
+        // Data State Aplikasi
+        const state = {
+            user: null, // { username, role }
+            logs: [],
+            stakeholders: [],
+            mapInstance: null,
+            markers: []
+        };
+    </script>
+
+    <!-- Global Loader -->
+    <div id="loader" class="fixed inset-0 bg-slate-900 bg-opacity-50 z-50 justify-center items-center">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav id="navbar" class="bg-blue-600 text-white p-4 shadow-md hidden flex-shrink-0">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                Fleet System
+            </h1>
+            <div class="flex items-center gap-4">
+                <span id="nav-user-info" class="text-sm font-medium"></span>
+                <button onclick="logout()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition">Logout</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <main id="main-content" class="flex-grow container mx-auto p-4 overflow-y-auto">
+        
+        <!-- ================= LOGIN VIEW ================= -->
+        <div id="view-login" class="max-w-md mx-auto mt-20 bg-white p-8 rounded-xl shadow-lg border border-slate-100">
+            <div class="text-center mb-8">
+                <div class="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-800">Login Sistem</h2>
+                <p class="text-slate-500 text-sm">Silakan masuk menggunakan akun Anda</p>
+            </div>
+            <form onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Username</label>
+                    <input type="text" id="login-username" required class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-slate-700 mb-1">Password</label>
+                    <input type="password" id="login-password" required class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div id="login-error" class="text-red-500 text-sm hidden text-center"></div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
+                    Masuk
+                </button>
+            </form>
+        </div>
+
+        <!-- ================= DRIVER VIEW ================= -->
+        <div id="view-driver" class="hidden max-w-lg mx-auto bg-white p-6 rounded-xl shadow border border-slate-100">
+            <h2 class="text-xl font-bold mb-4 border-b pb-2 text-slate-800">Form Update Perjalanan (Driver)</h2>
+            <form onsubmit="submitForm(event, 'driver')" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">ID Trip / No Armada</label>
+                    <input type="text" id="d-id-trip" required class="w-full p-2 border rounded-md">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Rute Lintas</label>
+                    <select id="d-rute" required class="w-full p-2 border rounded-md">
+                        <option value="">Pilih Rute</option>
+                        <option value="Timur">Lintas Timur</option>
+                        <option value="Barat">Lintas Barat</option>
+                        <option value="Tengah">Lintas Tengah</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Status Saat Ini</label>
+                    <select id="d-status" required class="w-full p-2 border rounded-md">
+                        <option value="Berangkat">Berangkat</option>
+                        <option value="Tiba di Cabang">Tiba di Cabang</option>
+                        <option value="Kendala">Terkendala</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Keterangan Kendala</label>
+                    <textarea id="d-kendala" rows="3" class="w-full p-2 border rounded-md" placeholder="Kosongkan jika aman..."></textarea>
+                </div>
+                <div class="bg-blue-50 p-3 rounded text-sm text-blue-700 flex items-start gap-2">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                    Lokasi GPS HP Anda akan direkam secara otomatis saat tombol Kirim ditekan.
+                </div>
+                <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-md transition">Update Perjalanan</button>
+            </form>
+        </div>
+
+        <!-- ================= CHECKER VIEW ================= -->
+        <div id="view-checker" class="hidden max-w-xl mx-auto bg-white p-6 rounded-xl shadow border border-slate-100">
+            <h2 class="text-xl font-bold mb-4 border-b pb-2 text-slate-800">Form Operasional (Checker)</h2>
+            <form onsubmit="submitForm(event, 'checker')" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">ID Trip / No Armada</label>
+                        <input type="text" id="c-id-trip" required class="w-full p-2 border rounded-md">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Tipe Armada</label>
+                        <select id="c-armada" required class="w-full p-2 border rounded-md">
+                            <option value="Small">Small (Blindvan, L300)</option>
+                            <option value="Medium">Medium (CDD, CDE, dll)</option>
+                            <option value="Large">Large (Fuso, Tronton)</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium mb-1">Status Proses</label>
+                    <select id="c-status" required class="w-full p-2 border rounded-md" onchange="toggleKoliInput(this.value)">
+                        <option value="Antrian">Antrian Armada (Mulai)</option>
+                        <option value="Loading">Proses Loading (Muat)</option>
+                        <option value="Unloading">Proses Unloading (Bongkar)</option>
+                    </select>
+                </div>
+
+                <div id="c-koli-section" class="hidden space-y-4 bg-slate-50 p-4 rounded-md border">
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Jumlah Koli Keseluruhan</label>
+                        <input type="number" id="c-koli-total" class="w-full p-2 border rounded-md">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium mb-1">Jumlah Koli Per Cabang</label>
+                        <div id="dynamic-cabang-container" class="space-y-2">
+                            <!-- Dynamic inputs -->
+                        </div>
+                        <button type="button" onclick="addCabangInput()" class="mt-2 text-sm text-blue-600 font-medium hover:underline">+ Tambah Cabang</button>
+                    </div>
+                </div>
+
+                <div class="bg-blue-50 p-3 rounded text-sm text-blue-700 flex items-start gap-2">
+                    <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    Waktu/Tanggal akan direkam otomatis oleh sistem.
+                </div>
+                
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-lg shadow-md transition">Simpan Data Proses</button>
+            </form>
+        </div>
+
+        <!-- ================= ADMIN DASHBOARD VIEW ================= -->
+        <div id="view-admin" class="hidden space-y-6">
+            
+            <!-- Statistik -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow border-l-4 border-blue-500">
+                    <p class="text-sm text-slate-500 font-medium">Total Armada Aktif</p>
+                    <p id="stat-aktif" class="text-2xl font-bold">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow border-l-4 border-yellow-500">
+                    <p class="text-sm text-slate-500 font-medium">Sedang Loading/Unloading</p>
+                    <p id="stat-proses" class="text-2xl font-bold">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow border-l-4 border-red-500">
+                    <p class="text-sm text-slate-500 font-medium">Terkendala / Alert KPI</p>
+                    <p id="stat-kendala" class="text-2xl font-bold text-red-600">0</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow flex items-center justify-center">
+                    <button onclick="fetchDashboardData()" class="text-blue-600 hover:bg-blue-50 px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Refresh Data
+                    </button>
+                </div>
+            </div>
+
+            <!-- Peta -->
+            <div class="bg-white p-4 rounded-xl shadow border border-slate-100">
+                <h3 class="font-bold text-slate-800 mb-3 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"></path></svg>
+                    Peta Distribusi Realtime
+                </h3>
+                <div id="map"></div>
+            </div>
+
+            <!-- Tabel Data -->
+            <div class="bg-white p-4 rounded-xl shadow border border-slate-100">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                    <h3 class="font-bold text-slate-800">Log Aktivitas & KPI</h3>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <select id="filter-rute" onchange="renderTable()" class="p-2 border rounded bg-slate-50 text-sm">
+                            <option value="all">Semua Rute</option>
+                            <option value="Timur">Timur</option>
+                            <option value="Barat">Barat</option>
+                            <option value="Tengah">Tengah</option>
+                        </select>
+                        <select id="filter-status" onchange="renderTable()" class="p-2 border rounded bg-slate-50 text-sm">
+                            <option value="all">Semua Status</option>
+                            <option value="Berangkat">Berangkat</option>
+                            <option value="Loading">Loading</option>
+                            <option value="Unloading">Unloading</option>
+                            <option value="Kendala">Kendala</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-xs text-slate-500 uppercase bg-slate-50">
+                            <tr>
+                                <th class="px-4 py-3">Waktu</th>
+                                <th class="px-4 py-3">ID Trip</th>
+                                <th class="px-4 py-3">Rute/Armada</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3">Detail (Koli)</th>
+                                <th class="px-4 py-3">Indikator KPI</th>
+                                <th class="px-4 py-3">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body">
+                            <!-- Data Row diletakkan di sini oleh JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <!-- App Logic JS -->
+    <script>
+        // Set loading state
+        const setLoading = (isLoading) => {
+            if (isLoading) document.body.classList.add('is-loading');
+            else document.body.classList.remove('is-loading');
+        }
+
+        // Generic API Request (POST plain text to avoid CORS preflight, server parses JSON)
+        async function apiRequest(payload) {
+            setLoading(true);
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                setLoading(false);
+                return result;
+            } catch (error) {
+                console.error(error);
+                setLoading(false);
+                alert("Terjadi kesalahan jaringan atau CORS. Pastikan URL Apps Script benar dan di-deploy ke 'Semua Orang'.");
+                return { success: false };
+            }
+        }
+
+        // Router & View Management
+        function switchView(viewName) {
+            document.getElementById('view-login').classList.add('hidden');
+            document.getElementById('view-driver').classList.add('hidden');
+            document.getElementById('view-checker').classList.add('hidden');
+            document.getElementById('view-admin').classList.add('hidden');
+            
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+
+            if (viewName === 'login') {
+                document.getElementById('navbar').classList.add('hidden');
+            } else {
+                document.getElementById('navbar').classList.remove('hidden');
+                document.getElementById('nav-user-info').innerText = `${state.user.role}: ${state.user.username}`;
+                
+                if (viewName === 'admin') {
+                    fetchDashboardData();
+                    setTimeout(initMap, 300); // init map after unhide
+                }
+            }
+        }
+
+        // --- AUTH ---
+        async function handleLogin(e) {
+            e.preventDefault();
+            const u = document.getElementById('login-username').value;
+            const p = document.getElementById('login-password').value;
+            const errDiv = document.getElementById('login-error');
+            
+            const res = await apiRequest({ action: 'login', username: u, password: p });
+            if (res.success) {
+                errDiv.classList.add('hidden');
+                state.user = { username: res.username, role: res.role };
+                
+                // Route based on role
+                if (res.role === 'Admin') switchView('admin');
+                else if (res.role === 'Driver') switchView('driver');
+                else if (res.role === 'Checker') switchView('checker');
+                else alert('Role tidak dikenal');
+            } else {
+                errDiv.innerText = res.message;
+                errDiv.classList.remove('hidden');
+            }
+        }
+
+        function logout() {
+            state.user = null;
+            document.getElementById('login-username').value = '';
+            document.getElementById('login-password').value = '';
+            switchView('login');
+        }
+
+        // --- FORMS (Driver & Checker) ---
+        function toggleKoliInput(status) {
+            const section = document.getElementById('c-koli-section');
+            if(status === 'Loading') {
+                section.classList.remove('hidden');
+            } else {
+                section.classList.add('hidden');
+            }
+        }
+
+        function addCabangInput() {
+            const container = document.getElementById('dynamic-cabang-container');
+            const div = document.createElement('div');
+            div.className = 'flex gap-2 mt-2';
+            div.innerHTML = `
+                <input type="text" placeholder="Nama Cabang" class="w-1/2 p-2 border rounded text-sm">
+                <input type="number" placeholder="Jumlah" class="w-1/2 p-2 border rounded text-sm koli-cabang-val">
+            `;
+            container.appendChild(div);
+        }
+
+        // Helper untuk GPS
+        function getGPS() {
+            return new Promise((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    resolve({lat: null, lng: null});
+                }
+                navigator.geolocation.getCurrentPosition(
+                    pos => resolve({lat: pos.coords.latitude, lng: pos.coords.longitude}),
+                    err => resolve({lat: null, lng: null}),
+                    { enableHighAccuracy: true, timeout: 5000 }
+                );
+            });
+        }
+
+        async function submitForm(e, type) {
+            e.preventDefault();
+            let data = { user: state.user.username };
+            
+            if (type === 'driver') {
+                data.id_trip = document.getElementById('d-id-trip').value;
+                data.rute = document.getElementById('d-rute').value;
+                data.status = document.getElementById('d-status').value;
+                data.kendala = document.getElementById('d-kendala').value;
+                
+                // Get GPS
+                const gps = await getGPS();
+                data.lat = gps.lat;
+                data.lng = gps.lng;
+            } 
+            else if (type === 'checker') {
+                data.id_trip = document.getElementById('c-id-trip').value;
+                data.armada_type = document.getElementById('c-armada').value;
+                data.status = document.getElementById('c-status').value;
+                
+                if (data.status === 'Loading') {
+                    data.koli_total = document.getElementById('c-koli-total').value;
+                    
+                    // Kumpulkan data koli cabang
+                    let koliCabangArr = [];
+                    const rows = document.getElementById('dynamic-cabang-container').children;
+                    for (let r of rows) {
+                        let inputs = r.getElementsByTagName('input');
+                        if (inputs[0].value && inputs[1].value) {
+                            koliCabangArr.push(`${inputs[0].value}:${inputs[1].value}`);
+                        }
+                    }
+                    data.koli_cabang = koliCabangArr.join(', ');
+                }
+            }
+
+            const res = await apiRequest({ action: 'addLog', data: data });
+            if (res.success) {
+                alert('Data berhasil disimpan!');
+                e.target.reset(); // clear form
+                if(type === 'checker') document.getElementById('dynamic-cabang-container').innerHTML = '';
+            }
+        }
+
+        // --- ADMIN DASHBOARD ---
+        async function fetchDashboardData() {
+            const res = await apiRequest({ action: 'getDashboardData' });
+            if (res.success) {
+                state.logs = res.logs.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)); // desc
+                state.stakeholders = res.stakeholders;
+                renderDashboard();
+            }
+        }
+
+        function renderDashboard() {
+            // Stats
+            let aktif = new Set();
+            let kendala = 0;
+            let proses = 0;
+
+            state.logs.forEach(log => {
+                if(log.id_trip) aktif.add(log.id_trip);
+                if(log.status === 'Kendala' || log.kendala !== '') kendala++;
+                if(log.status === 'Loading' || log.status === 'Unloading') proses++;
+            });
+
+            document.getElementById('stat-aktif').innerText = aktif.size;
+            document.getElementById('stat-proses').innerText = proses;
+            document.getElementById('stat-kendala').innerText = kendala;
+
+            // Map & Table
+            renderTable();
+            updateMap();
+        }
+
+        function calculateKPIAlert(log) {
+            // Logika KPI Berdasarkan Gambar:
+            // Max Antrian: 3 Jam.
+            // Unloading: Small(20m), Medium(60m), Large(120m).
+            
+            if(!log.timestamp) return null;
+            const logTime = new Date(log.timestamp);
+            const now = new Date();
+            const diffMinutes = Math.floor((now - logTime) / 60000);
+            
+            if (log.status === 'Antrian' && diffMinutes > 180) {
+                return `Alert! Antrian > 3 Jam (${diffMinutes}m)`;
+            }
+
+            if (log.status === 'Unloading' && log.armada_type) {
+                let limit = 0;
+                if(log.armada_type === 'Small') limit = 20;
+                if(log.armada_type === 'Medium') limit = 60;
+                if(log.armada_type === 'Large') limit = 120;
+
+                if(limit > 0 && diffMinutes > limit) {
+                    return `Alert! Unloading ${log.armada_type} > ${limit}m (${diffMinutes}m)`;
+                }
+            }
+
+            if (log.status === 'Kendala' || log.kendala) {
+                return `Alert Kendala: ${log.kendala}`;
+            }
+
+            return null;
+        }
+
+        function generateWALink(message) {
+            // Ambil nomor WA stakeholder pertama sebagai default (bisa diatur lebih kompleks)
+            let noWa = state.stakeholders.length > 0 ? state.stakeholders[0].no_wa : '6280000000';
+            const encMsg = encodeURIComponent(message);
+            return `https://wa.me/${noWa}?text=${encMsg}`;
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('table-body');
+            const fRute = document.getElementById('filter-rute').value;
+            const fStatus = document.getElementById('filter-status').value;
+            
+            tbody.innerHTML = '';
+
+            state.logs.forEach(log => {
+                // Filter
+                if (fRute !== 'all' && log.rute !== fRute) return;
+                if (fStatus !== 'all' && log.status !== fStatus) return;
+
+                // KPI Logic
+                const kpiAlert = calculateKPIAlert(log);
+                const isAlert = kpiAlert !== null;
+
+                const tr = document.createElement('tr');
+                tr.className = "border-b hover:bg-slate-50";
+                
+                const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleString('id-ID') : '-';
+                
+                tr.innerHTML = `
+                    <td class="px-4 py-3">${timeStr}</td>
+                    <td class="px-4 py-3 font-medium">${log.id_trip}</td>
+                    <td class="px-4 py-3">${log.rute || '-'}<br><span class="text-xs text-slate-500">${log.armada_type || ''}</span></td>
+                    <td class="px-4 py-3">
+                        <span class="px-2 py-1 text-xs rounded-full ${isAlert ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}">
+                            ${log.status}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-xs">
+                        Tot: ${log.koli_total || 0}<br>
+                        ${log.koli_cabang || '-'}
+                    </td>
+                    <td class="px-4 py-3 text-xs text-red-600 font-bold max-w-[150px] truncate">
+                        ${isAlert ? kpiAlert : '-'}
+                    </td>
+                    <td class="px-4 py-3">
+                        ${isAlert ? 
+                            `<a href="${generateWALink(`[ALERT Fleet] Trip ${log.id_trip}: ${kpiAlert}`)}" target="_blank" class="bg-green-500 text-white p-1.5 rounded-md text-xs hover:bg-green-600 flex items-center justify-center gap-1 w-max">
+                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12.012 2c-5.506 0-9.989 4.478-9.99 9.984a9.964 9.964 0 001.333 4.976L2 22l5.187-1.339a9.983 9.983 0 004.825 1.25H12.013c5.506 0 9.989-4.478 9.989-9.985S17.518 2 12.012 2zm0 18.25c-1.603 0-3.172-.418-4.551-1.21l-.326-.188-3.385.874.904-3.238-.211-.33a8.27 8.27 0 01-1.272-4.423c.001-4.57 3.723-8.288 8.293-8.288 2.215 0 4.298.863 5.864 2.43 1.565 1.567 2.428 3.65 2.427 5.865 0 4.57-3.723 8.288-8.293 8.288zm4.55-6.223c-.25-.125-1.474-.727-1.703-.811-.23-.083-.396-.125-.563.125-.166.25-.644.811-.79 1.978-.146.166-.293.187-.542.062-.25-.125-1.054-.39-2.008-1.243-.743-.665-1.245-1.488-1.391-1.738-.146-.25-.015-.385.11-.51.112-.112.25-.292.375-.438.125-.146.167-.25.25-.417.083-.167.042-.313-.021-.438-.063-.125-.563-1.354-.771-1.854-.203-.487-.41-.421-.563-.429-.146-.007-.313-.007-.479-.007s-.438.062-.667.312c-.229.25-.875.854-.875 2.083s.896 2.417 1.021 2.583c.125.167 1.77 2.709 4.291 3.792 1.487.636 2.115.688 2.894.615.864-.08 1.474-.604 1.683-1.188.208-.583.208-1.083.146-1.188-.063-.104-.23-.166-.479-.291z"/></svg>
+                                Info WA
+                            </a>` 
+                            : '-'
+                        }
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- MAP INTEGRATION ---
+        function initMap() {
+            if (state.mapInstance) return; // Prevent re-init
+            
+            // Default center: Indonesia
+            state.mapInstance = L.map('map').setView([-2.5489, 118.0149], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(state.mapInstance);
+        }
+
+        function updateMap() {
+            if (!state.mapInstance) return;
+            
+            // Clear existing markers
+            state.markers.forEach(m => state.mapInstance.removeLayer(m));
+            state.markers = [];
+
+            // Add new markers for logs that have lat & lng
+            // Get latest pos per trip
+            let latestPos = {};
+            state.logs.forEach(log => {
+                if(log.lat && log.lng && !latestPos[log.id_trip]) {
+                    latestPos[log.id_trip] = log;
+                }
+            });
+
+            const bounds = [];
+            Object.values(latestPos).forEach(log => {
+                const marker = L.marker([parseFloat(log.lat), parseFloat(log.lng)])
+                    .addTo(state.mapInstance)
+                    .bindPopup(`<b>${log.id_trip}</b><br>Status: ${log.status}<br>Time: ${new Date(log.timestamp).toLocaleTimeString()}`);
+                state.markers.push(marker);
+                bounds.push([parseFloat(log.lat), parseFloat(log.lng)]);
+            });
+
+            if (bounds.length > 0) {
+                state.mapInstance.fitBounds(bounds, { maxZoom: 12 });
+            }
+        }
+        
+        // Initialize showing login
+        switchView('login');
+
+    </script>
+</body>
+</html>
